@@ -74,14 +74,15 @@ def main() -> None:
     fly_day = splitted_date[2]
     adults = args.adults
 
-    # https://skyscanner.com/transport/flights/ctg/bog/250223/?adultsv2=2
+    # https://www.aviasales.com/search/ctg2803bog2
     aviasales_url = f"https://www.aviasales.com/search/{fly_from}{fly_day}{fly_month}{fly_to}{adults}"
     webbrowser.open(aviasales_url)
 
     # https://skyscanner.com/transport/flights/ctg/bog/250223/?adultsv2=2
-    aviasales_url = f"https://skyscanner.com/transport/flights/{fly_from}/{fly_to}/{fly_year}{fly_month}{fly_day}/?adultsv2={adults}"
-    webbrowser.open(aviasales_url)
+    skyscanner_url = f"https://skyscanner.com/transport/flights/{fly_from}/{fly_to}/{fly_year}{fly_month}{fly_day}/?adultsv2={adults}"
+    webbrowser.open(skyscanner_url)
 
+    # https://www.google.com/travel/flights?tfs=GhoSCjIwMjUtMDMtMjhqBRIDQ1RHcgUSA0JPR0ICAQFIAZgBAg==&curr=USD
     google_flights_url = generate_google_flights_url(fly_from, fly_to, fly_date, adults)
     webbrowser.open(google_flights_url)
 
