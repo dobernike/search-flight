@@ -27,3 +27,10 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.14.8",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+package = true
