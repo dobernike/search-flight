@@ -20,3 +20,8 @@ dependencies = ["argparse", "fast-flights", "primp==0.11.0"]
 
 [project.scripts]
 sfly = "search_flight.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.8",
+]
