@@ -1,0 +1,366 @@
+---
+import "../styles/global.css";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Search Flight</title>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <h1>Search Flight Links</h1>
+        <p>Type city, airport, or IATA. Pick one suggestion to submit valid airport IATA only.</p>
+      </section>
+
+      <section class="panel">
+        <form id="search-form" autocomplete="off">
+          <label class="autocomplete-field">
+            <span>Origin (IATA)</span>
+            <input id="origin-input" name="originText" required placeholder="Cartagena / CTG" />
+            <input id="origin-code" name="origin" type="hidden" />
+            <div id="origin-suggestions" class="suggestions" hidden></div>
+          </label>
+
+          <label class="autocomplete-field">
+            <span>Destination (IATA)</span>
+            <input id="destination-input" name="destinationText" required placeholder="Bogota / BOG" />
+            <input id="destination-code" name="destination" type="hidden" />
+            <div id="destination-suggestions" class="suggestions" hidden></div>
+          </label>
+
+          <label>
+            <span>Date</span>
+            <div class="date-row">
+              <input name="date" type="text" inputmode="numeric" required placeholder="DD/MM/YYYY" />
+              <button id="date-picker-btn" type="button" class="date-picker-btn" aria-label="Open date picker">
+                Pick
+              </button>
+              <input id="native-date-picker" type="date" class="native-date-picker" aria-hidden="true" tabindex="-1" />
+            </div>
+          </label>
+
+          <label>
+            <span>Adults</span>
+            <input name="adults" type="number" min="1" step="1" value="2" required />
+          </label>
+
+          <div class="full">
+            <button id="submit-btn" type="submit">Generate Links</button>
+          </div>
+        </form>
+
+        <p id="status" aria-live="polite"></p>
+        <div id="results" class="results" hidden></div>
+      </section>
+    </main>
+
+    <script define:vars={{ apiBaseUrl }} is:inline>
+      const form = document.getElementById("search-form");
+      const status = document.getElementById("status");
+      const results = document.getElementById("results");
+      const submitButton = document.getElementById("submit-btn");
+      const dateInput = form.elements.date;
+      const datePickerButton = document.getElementById("date-picker-btn");
+      const nativeDatePicker = document.getElementById("native-date-picker");
+
+      const originInput = document.getElementById("origin-input");
+      const destinationInput = document.getElementById("destination-input");
+      const originCode = document.getElementById("origin-code");
+      const destinationCode = document.getElementById("destination-code");
+      const originSuggestions = document.getElementById("origin-suggestions");
+      const destinationSuggestions = document.getElementById("destination-suggestions");
+
+      function formatDateForDisplay(date) {
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = String(date.getFullYear());
+        return `${day}/${month}/${year}`;
+      }
+
+      if (!dateInput.value) {
+        dateInput.value = formatDateForDisplay(new Date());
+      }
+
+      const providerLabels = {
+        aviasales: "aviasales",
+        skyscanner: "skyscanner",
+        gflights: "google flights",
+      };
+
+      function setStatus(message, isError = false) {
+        status.textContent = message;
+        status.classList.toggle("error", isError);
+      }
+
+      function clearResults() {
+        results.innerHTML = "";
+        results.hidden = true;
+      }
+
+      function renderResults(payload) {
+        const cards = Object.entries(payload)
+          .map(([provider, url]) => {
+            const safeProvider = providerLabels[provider] ?? provider;
+            return `
+              <article class="result">
+                <strong>${safeProvider}</strong>
+                <a href="${url}" target="_blank" rel="noopener noreferrer">Open</a>
+              </article>
+            `;
+          })
+          .join("");
+
+        results.innerHTML = cards;
+        results.hidden = false;
+      }
+
+      function hideSuggestions(container) {
+        container.innerHTML = "";
+        container.hidden = true;
+      }
+
+      function displayLabel(item) {
+        return `${item.code} - ${item.city} (${item.name}, ${item.country})`;
+      }
+
+      async function fetchAirportSuggestions(term) {
+        const params = new URLSearchParams({ term });
+        const response = await fetch(`${apiBaseUrl}/api/airports/autocomplete?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error("Could not load airport suggestions.");
+        }
+        return response.json();
+      }
+
+      async function tryResolveTypedIata(input, hiddenCode, container) {
+        const term = String(input.value || "").trim();
+        if (!/^[A-Za-z]{3}$/.test(term)) {
+          return false;
+        }
+
+        const code = term.toUpperCase();
+        const suggestions = await fetchAirportSuggestions(code);
+        const match = suggestions.find((item) => item.code === code);
+        if (!match) {
+          return false;
+        }
+
+        hiddenCode.value = match.code;
+        input.value = displayLabel(match);
+        hideSuggestions(container);
+        return true;
+      }
+
+      function bindAutocomplete(input, hiddenCode, container) {
+        let debounceTimer;
+
+        input.addEventListener("input", () => {
+          hiddenCode.value = "";
+          const term = input.value.trim();
+
+          clearTimeout(debounceTimer);
+          if (term.length < 2) {
+            hideSuggestions(container);
+            return;
+          }
+
+          debounceTimer = setTimeout(async () => {
+            try {
+              const suggestions = await fetchAirportSuggestions(term);
+              if (!suggestions.length) {
+                hideSuggestions(container);
+                return;
+              }
+
+              container.innerHTML = suggestions
+                .map((item) => {
+                  const label = displayLabel(item);
+                  return `<button type="button" class="suggestion-item" data-code="${item.code}" data-label="${label}">${label}</button>`;
+                })
+                .join("");
+              container.hidden = false;
+            } catch (error) {
+              hideSuggestions(container);
+            }
+          }, 180);
+        });
+
+        container.addEventListener("click", (event) => {
+          const selected = event.target.closest(".suggestion-item");
+          if (!selected) {
+            return;
+          }
+
+          hiddenCode.value = selected.dataset.code || "";
+          input.value = selected.dataset.label || "";
+          hideSuggestions(container);
+        });
+
+        input.addEventListener("blur", () => {
+          setTimeout(() => hideSuggestions(container), 120);
+        });
+
+        input.addEventListener("keydown", async (event) => {
+          if (event.key !== "Enter") {
+            return;
+          }
+
+          event.preventDefault();
+
+          if (!hiddenCode.value) {
+            try {
+              const resolved = await tryResolveTypedIata(input, hiddenCode, container);
+              if (!resolved) {
+                setStatus("IATA not found. Select from suggestions or enter a valid 3-letter airport code.", true);
+                return;
+              }
+            } catch (_) {
+              setStatus("Could not validate IATA right now. Try again.", true);
+              return;
+            }
+          }
+
+          setStatus("");
+        });
+      }
+
+      bindAutocomplete(originInput, originCode, originSuggestions);
+      bindAutocomplete(destinationInput, destinationCode, destinationSuggestions);
+
+      function parseDisplayDateToIso(value) {
+        const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(value || "").trim());
+        if (!match) {
+          return null;
+        }
+
+        const [, day, month, year] = match;
+        const monthNum = Number(month);
+        const dayNum = Number(day);
+        const yearNum = Number(year);
+        const date = new Date(Date.UTC(yearNum, monthNum - 1, dayNum));
+
+        if (
+          date.getUTCFullYear() !== yearNum ||
+          date.getUTCMonth() + 1 !== monthNum ||
+          date.getUTCDate() !== dayNum
+        ) {
+          return null;
+        }
+
+        return `${year}-${month}-${day}`;
+      }
+
+      function isoToDisplay(isoDate) {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ""));
+        if (!match) {
+          return null;
+        }
+        const [, year, month, day] = match;
+        return `${day}/${month}/${year}`;
+      }
+
+      function syncNativePickerFromDisplay() {
+        const iso = parseDisplayDateToIso(dateInput.value);
+        if (iso) {
+          nativeDatePicker.value = iso;
+        }
+      }
+
+      datePickerButton.addEventListener("click", () => {
+        syncNativePickerFromDisplay();
+        if (typeof nativeDatePicker.showPicker === "function") {
+          nativeDatePicker.showPicker();
+        } else {
+          nativeDatePicker.focus();
+          nativeDatePicker.click();
+        }
+      });
+
+      nativeDatePicker.addEventListener("change", () => {
+        const display = isoToDisplay(nativeDatePicker.value);
+        if (display) {
+          dateInput.value = display;
+        }
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearResults();
+
+        if (!originCode.value) {
+          try {
+            await tryResolveTypedIata(originInput, originCode, originSuggestions);
+          } catch (_) {
+            setStatus("Could not validate origin IATA right now. Try again.", true);
+            return;
+          }
+        }
+
+        if (!destinationCode.value) {
+          try {
+            await tryResolveTypedIata(destinationInput, destinationCode, destinationSuggestions);
+          } catch (_) {
+            setStatus("Could not validate destination IATA right now. Try again.", true);
+            return;
+          }
+        }
+
+        if (!originCode.value || !destinationCode.value) {
+          setStatus("Select valid origin and destination (or enter valid IATA like BOG and press Enter).", true);
+          return;
+        }
+
+        const isoDate = parseDisplayDateToIso(form.elements.date.value);
+        if (!isoDate) {
+          setStatus("Date must use DD/MM/YYYY format (example: 10/03/2026).", true);
+          return;
+        }
+
+        const payload = {
+          origin: originCode.value,
+          destination: destinationCode.value,
+          date: isoDate,
+          adults: Number(form.elements.adults.value),
+        };
+
+        if (!Number.isInteger(payload.adults) || payload.adults < 1) {
+          setStatus("Adults must be at least 1.", true);
+          return;
+        }
+
+        submitButton.disabled = true;
+        setStatus("Generating links...");
+
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/search-urls`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            const maybeError = await response.json().catch(() => null);
+            const detail = maybeError?.detail ? JSON.stringify(maybeError.detail) : "Request failed.";
+            throw new Error(detail);
+          }
+
+          const data = await response.json();
+          renderResults(data);
+          setStatus("Links generated.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unexpected error.";
+          setStatus(`Could not generate links: ${message}`, true);
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
